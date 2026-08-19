@@ -6,4 +6,4 @@
   disabled: true
 - insert:
     - id: ui-worktree-panel
-      name: 'dsh-worktree-panel'
+      name: '@lim324/dsh-worktree-panel'
