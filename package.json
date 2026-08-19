@@ -1,5 +1,5 @@
 {
-  "name": "dsh-worktree-panel",
+  "name": "@lim324/dsh-worktree-panel",
   "description": "Worktree + git branch management panel for the DSH Web GUI: orca-style project -> worktree -> sessions tree in the sidebar, with branch/worktree create, open and cleanup backed by real git worktrees and the DSH workspace registry.",
   "version": "0.1.2",
   "scripts": {

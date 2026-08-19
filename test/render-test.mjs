@@ -51,7 +51,7 @@ const fakeWindow = {
   __wtpInitialTree: null, // seeded below once the fixture exists
   __ModuleLoader__: {
     load: ({ id, factory }) => {
-      if (id !== "dsh-worktree-panel") throw new Error("unexpected id " + id)
+      if (id !== "@lim324/dsh-worktree-panel") throw new Error("unexpected id " + id)
       factoryRef = factory
     },
   },

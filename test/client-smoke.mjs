@@ -16,7 +16,7 @@ let factory
 const fakeWindow = {
   __ModuleLoader__: {
     load: ({ id, factory: f }) => {
-      if (id !== "dsh-worktree-panel") throw new Error("unexpected bundle id: " + id)
+      if (id !== "@lim324/dsh-worktree-panel") throw new Error("unexpected bundle id: " + id)
       factory = f
     },
   },

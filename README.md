@@ -1,10 +1,12 @@
-# dsh-worktree-panel
+# @lim324/dsh-worktree-panel
+
+> Fork of [HeathHe/dsh-worktree-panel](https://github.com/HeathHe/dsh-worktree-panel)，scoped 为 `@lim324`。/ Forked from [HeathHe/dsh-worktree-panel](https://github.com/HeathHe/dsh-worktree-panel), scoped under `@lim324`.
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/dsh-worktree-panel"><img alt="npm version" src="https://img.shields.io/npm/v/dsh-worktree-panel?label=npm&color=blue"></a>
-  <a href="https://www.npmjs.com/package/dsh-worktree-panel"><img alt="monthly downloads" src="https://img.shields.io/npm/dm/dsh-worktree-panel?label=%E6%9C%88%E4%B8%8B%E8%BD%BD&color=brightgreen"></a>
-  <a href="https://github.com/HeathHe/dsh-worktree-panel"><img alt="stars" src="https://img.shields.io/github/stars/HeathHe/dsh-worktree-panel?style=social"></a>
-  <a href="https://github.com/HeathHe/dsh-worktree-panel/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/HeathHe/dsh-worktree-panel?color=orange"></a>
+  <a href="https://www.npmjs.com/package/@lim324/dsh-worktree-panel"><img alt="npm version" src="https://img.shields.io/npm/v/@lim324/dsh-worktree-panel?label=npm&color=blue"></a>
+  <a href="https://www.npmjs.com/package/@lim324/dsh-worktree-panel"><img alt="monthly downloads" src="https://img.shields.io/npm/dm/@lim324/dsh-worktree-panel?label=%E6%9C%88%E4%B8%8B%E8%BD%BD&color=brightgreen"></a>
+  <a href="https://github.com/Limsanity/dsh-worktree-panel"><img alt="stars" src="https://img.shields.io/github/stars/Limsanity/dsh-worktree-panel?style=social"></a>
+  <a href="https://github.com/Limsanity/dsh-worktree-panel/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/Limsanity/dsh-worktree-panel?color=orange"></a>
   <img alt="platform" src="https://img.shields.io/badge/platform-DeepSeek%20Harness%20Web-8A2BE2">
 </p>
 
@@ -19,7 +21,7 @@ A git worktree / branch panel for the [DeepSeek Harness](https://github.com/deep
 ### 安装 / Install
 
 ```sh
-dsh plugin --profile web add dsh-worktree-panel
+dsh plugin --profile web add @lim324/dsh-worktree-panel
 ```
 
 装完重启 `dsh web`，工作区侧边栏即出现 worktree 维度。/ Restart `dsh web` afterwards; the worktree dimension appears in the sidebar.
@@ -27,13 +29,13 @@ dsh plugin --profile web add dsh-worktree-panel
 安装指定版本 / Install a specific version:
 
 ```sh
-dsh plugin --profile web add dsh-worktree-panel@0.1.1
+dsh plugin --profile web add @lim324/dsh-worktree-panel@0.1.1
 ```
 
 ### 升级 / Upgrade
 
 ```sh
-dsh plugin --profile web add dsh-worktree-panel@<新版本 / new version>
+dsh plugin --profile web add @lim324/dsh-worktree-panel@<新版本 / new version>
 # 然后重启 dsh web / then restart dsh web
 ```
 
