@@ -22,6 +22,9 @@ A git worktree / branch panel for the [DeepSeek Harness](https://github.com/deep
 
 ```sh
 dsh plugin --profile web add @lim324/dsh-worktree-panel
+
+# 或直接从 GitHub 安装
+dsh plugin --profile web add github:Limsanity/dsh-worktree-panel
 ```
 
 装完重启 `dsh web`，工作区侧边栏即出现 worktree 维度。/ Restart `dsh web` afterwards; the worktree dimension appears in the sidebar.
