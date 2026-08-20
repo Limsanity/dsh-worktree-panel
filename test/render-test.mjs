@@ -69,6 +69,7 @@ const mod = factoryRef((name) => {
     return {
       defineStore: (s) => ({ ...s }),
       indexSubagentDescendants: () => new Map(),
+      abbreviateHomePath: (p) => p,
     }
   }
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
@@ -78,6 +79,7 @@ const mod = factoryRef((name) => {
 // capture the registered components
 const registered = {}
 const ctx = {
+  get: (name) => (name === "connection" ? { hostDescription: "test-host" } : undefined),
   locale: { register: () => {} },
   sessions: { search: async () => ({ ok: true, value: { items: [] } }), searchResultLimit: 50, binding: () => undefined },
   workspaces: {},
@@ -162,6 +164,7 @@ const useStore = selectorHook(viewState)
 const useWorkspaces = (selector) => selector(workspacesState)
 const useSessions = (selector) => selector(sessionsState)
 const useDirectoryFlow = (selector) => selector(false)
+const useHostDescription = (selector) => selector({ home: undefined })
 
 const actions = {
   retainAccountKeys: () => {},
@@ -217,6 +220,7 @@ const props = {
   searchSessions: async () => ({ items: [] }),
   searchResultLimit: 50,
   useDirectoryFlow,
+  useHostDescription,
   renderSlot: () => null,
   t,
 }

@@ -58,6 +58,7 @@ if (!Array.isArray(mod.inject)) throw new Error("client bundle exports no inject
 
 const registrations = []
 const ctx = {
+  get: (name) => (name === "connection" ? { hostDescription: "test-host" } : undefined),
   locale: { register: () => {} },
   sessions: {
     search: async () => ({ ok: true, value: { items: [] } }),
