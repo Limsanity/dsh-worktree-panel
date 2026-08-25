@@ -20,20 +20,15 @@ A git worktree / branch panel for the [DeepSeek Harness](https://github.com/deep
 
 ### 安装 / Install
 
+**优先：从 npm 安装（推荐）**
+
 ```sh
 dsh plugin --profile web add @lim324/dsh-worktree-panel
-
-# 或直接从 GitHub 安装
-dsh plugin --profile web add github:Limsanity/dsh-worktree-panel
+# 指定版本 / install a specific version
+dsh plugin --profile web add @lim324/dsh-worktree-panel@<版本 / version>
 ```
 
 装完重启 `dsh web`，工作区侧边栏即出现 worktree 维度。/ Restart `dsh web` afterwards; the worktree dimension appears in the sidebar.
-
-安装指定版本 / Install a specific version:
-
-```sh
-dsh plugin --profile web add @lim324/dsh-worktree-panel@0.1.1
-```
 
 ### 升级 / Upgrade
 
@@ -42,11 +37,20 @@ dsh plugin --profile web add @lim324/dsh-worktree-panel@<新版本 / new version
 # 然后重启 dsh web / then restart dsh web
 ```
 
-### 源码开发 / Development
+### GitHub 源码安装（需要先 build）
+
+本项目是 patch 式构建：`lib/client.js` 由 `lib/build.mjs` 在**官方 `@deepseek-ai/dsh-client-ui-workspace` bundle** 上打补丁生成，因此从源码安装前必须先 build。
 
 ```sh
+git clone https://github.com/Limsanity/dsh-worktree-panel.git
+cd dsh-worktree-panel
+npm run build     # 生成 lib/client.js（需要本机已装 DSH，用于定位官方 ui-workspace bundle）
 dsh plugin --profile web add link:/绝对路径/到/dsh-worktree-panel
 ```
+
+### 源码开发 / Development
+
+用 `link:` 方式安装后，改动 `lib/build.mjs` 的 patch 点，或重新 `npm run build`，才会反映到 `lib/`。
 
 ---
 
