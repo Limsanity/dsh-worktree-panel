@@ -70,6 +70,47 @@ dsh plugin --profile web add link:/绝对路径/到/dsh-worktree-panel
 
 ---
 
+## AI 工具 / Agent Tools
+
+插件向 DSH 智能体（agent）注册两个可直接调用的工具，让它能在一次对话里自动创建/清理「独立分支上的新会话」，无需你手动建 worktree、再开新会话、再重述任务。
+
+Two agent-callable tools are registered so the agent can create/clean up an isolated branch + session in one turn, without you manually making the worktree, opening a session, and re-stating the task.
+
+### `worktree_task`
+
+```jsonc
+{ "repo": "项目名", "task": "在该 worktree 新会话中要完成的任务",
+  "branch": "可选，英文连字符命名", "kind": "可选，fix | feature", "base": "可选，基于的分支" }
+```
+
+- 为 `repo` 创建分支 + git worktree，把该目录注册为工作区，并**在其下新建一个 DSH 会话、注入 `task` 让其开始工作**（后台运行，用默认模型/预设）。
+- 分支名自动生成**英文小写、连字符（kebab）命名**：修复类 `fix/<name>`，功能类 `feature/<name>`（如「修复登录页偶发崩溃」→ `fix/login-page-crash`）。传了 `branch` 则优先沿用。
+- Creates the branch + git worktree, registers it as a workspace, then spawns a fresh session rooted there with `task` (runs in background, default model/preset). Branch names auto-derive to English kebab-case: `fix/<name>` for fixes, `feature/<name>` for features; an explicit `branch` wins.
+
+### `worktree_remove`
+
+```jsonc
+{ "repo": "项目名", "branch": "要删除的分支名", "force": "可选，是否强制" }
+```
+
+- 删除该分支的 git worktree（`git worktree remove` + `prune`）并注销其工作区；该目录有**运行中会话**且未传 `force` 会被拒绝。
+- Removes the branch's worktree (`git worktree remove` + `prune`) and unregisters its workspace; blocked while sessions there are running unless `force`.
+
+---
+
+## Slash 命令 / Slash Commands
+
+在 Web 输入框直接敲，避免重复输入「创建 worktree」。Type these in the composer to skip typing "create worktree".
+
+| 输入 / Type | 输入框变成 / Becomes | 效果 / Effect |
+|---|---|---|
+| `/wtfix` + 空格 | `创建 worktree 修复：` | 接着输入问题 → agent 调 `worktree_task` → `fix/<kebab>` 分支 + 新会话 |
+| `/wtfeat` + 空格 | `创建 worktree 实现：` | 接着输入功能 → agent 调 `worktree_task` → `feature/<kebab>` 分支 + 新会话 |
+
+也可以输入 `/` 从候选菜单里选 `wtfix` / `wtfeat`，或直接 `/wtfix <任务>` 回车（前缀会自动替换成 `创建 worktree 修复：`）。You can also pick `wtfix` / `wtfeat` from the `/` candidate menu, or reply `/wtfix <task>` (the token expands to `创建 worktree 修复：`).
+
+---
+
 ## 许可 / License
 
 MIT · `lib/client.js` 衍生自 `@deepseek-ai/dsh-client-ui-workspace`，详见 `NOTICE` / `LICENSE`。/ MIT · `lib/client.js` is derived from `@deepseek-ai/dsh-client-ui-workspace`; see `NOTICE` / `LICENSE`.
