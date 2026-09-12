@@ -4,13 +4,30 @@
 // the browser loads it. Rendering happens inside the slot framework, so apply
 // only needs locale/slots/workspaces/sessions stubs.
 import { createRequire } from "node:module"
-import { readFileSync } from "node:fs"
+import { readFileSync, globSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
 import { homedir } from "node:os"
 
-const profileRequire = createRequire(join(homedir(), ".dsh", "profiles", "web", "package.json"))
-const React = profileRequire("react")
+// Resolve react from the install that owns this checkout: the profile's own
+// node_modules first (DSH_HOME-aware — hardcoding ~/.dsh read the wrong install
+// on an isolated instance), then the npx cache the CLI bootstraps from.
+const dshHome = process.env.DSH_HOME || join(homedir(), ".dsh")
+const reactCandidates = [
+  join(dshHome, "profiles", "web", "package.json"),
+  join(dshHome, "profiles", "package.json"),
+  ...globSync(join(homedir(), ".npm", "_npx", "*", "node_modules", "react", "package.json")),
+]
+let React = null
+for (const candidate of reactCandidates) {
+  try {
+    React = createRequire(candidate)("react")
+    break
+  } catch {
+    // try the next install
+  }
+}
+if (React === null) throw new Error("cannot resolve react from any dsh install")
 
 let factory
 const fakeWindow = {
@@ -46,9 +63,11 @@ const mod = factory((name) => {
   if (name === "react/jsx-runtime") {
     return { jsx: React.createElement, jsxs: React.createElement, Fragment: React.Fragment }
   }
-  if (name === "@deepseek-ai/dsh-client-runtime/client") {
-    return { defineStore: (spec) => ({ ...spec }) }
-  }
+  // 0.1.5-rc.1 deleted @deepseek-ai/dsh-client-runtime; the bundle now takes
+  // Service from cordis and defineStore from dsh-client-store. Both are served
+  // by the web shell's seed table in the browser, so they only need stubs here.
+  if (name === "@deepseek-ai/cordis") return { Service: class Service { constructor(c) { this.ctx = c } } }
+  if (name === "@deepseek-ai/dsh-client-store") return { defineStore: (spec) => ({ ...spec }) }
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitivesStub
   throw new Error("unexpected require: " + name)
 })
@@ -56,18 +75,25 @@ const mod = factory((name) => {
 if (typeof mod.apply !== "function") throw new Error("client bundle exports no apply")
 if (!Array.isArray(mod.inject)) throw new Error("client bundle exports no inject list")
 
-const registrations = []
-const ctx = {
-  get: (name) => (name === "connection" ? { hostDescription: "test-host" } : undefined),
-  locale: { register: () => {} },
-  sessions: {
-    search: async () => ({ ok: true, value: { items: [] } }),
-    searchResultLimit: 50,
-    binding: () => undefined,
-    fork: async () => "child",
-    open: () => {},
-  },
+// In 0.1.5-rc.1 both halves read their dependencies through `ctx.get(name)`, and
+// `workspaces`/`sessions` expose a `list` SNAPSHOT STORE (getSnapshot/subscribe)
+// rather than a bare array. Mirror that shape; `get` and the ambient properties
+// resolve to the same objects so either access style works.
+const workspacesList = {
+  getSnapshot: () => ({ items: [], archivedSessionIds: [], current: undefined }),
+  subscribe: () => () => {},
+}
+const sessionsList = {
+  getSnapshot: () => ({ ids: [], byId: {}, current: undefined, phase: "ready" }),
+  subscribe: () => () => {},
+}
+const services = {
+  connection: { hostDescription: "test-host" },
+  // the panel's augmentation registers an input-trigger source; the effect
+  // callback returns its disposer.
+  inputTriggers: { registerSource: () => () => {} },
   workspaces: {
+    list: workspacesList,
     startSession: () => {},
     rename: async () => {},
     delete: async () => {},
@@ -76,6 +102,25 @@ const ctx = {
     insertSessionBefore: async () => {},
     create: async () => ({}),
   },
+  sessions: {
+    list: sessionsList,
+    search: async () => ({ ok: true, value: { items: [] } }),
+    searchResultLimit: 50,
+    binding: () => undefined,
+    clear: async () => {},
+    create: async () => "child",
+    fork: async () => "child",
+    open: () => {},
+  },
+}
+
+const registrations = []
+const ctx = {
+  get: (name) => services[name],
+  ...services,
+  layout: {},
+  remote: { directoryPicker: { pick: async () => undefined, available: () => false }, query: {} },
+  locale: { register: () => {} },
   slots: {
     entries: () => [],
     subscribe: () => () => {},
@@ -83,6 +128,7 @@ const ctx = {
       registrations.push({ name, registered: cb() })
     },
     register: (opts, Component) => ({ opts, Component }),
+    provideRoot: () => {},
   },
   effect: (fn) => {
     const dispose = fn()

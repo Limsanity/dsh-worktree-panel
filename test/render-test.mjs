@@ -23,12 +23,37 @@ const jsxRuntime = cliRequire("react/jsx-runtime")
 // Real primitives import katex .css at module load (browser-only bundling), so
 // render with a component stub: every primitives export renders as <dsh-stub>.
 // The code under test is OUR injected SessionTree nesting, not the primitives.
+// Callable stub: some primitives are FUNCTIONS (relativeTime, …) while others
+// are components, so every export must be callable.
+//
+// It must also keep the subtree visible. 0.1.5-rc.1 wraps every row in a
+// primitive card that receives the row through an `anchor` PROP
+// (`HoverCard anchor={<div role="treeitem">…}>`); the 0.1.1 bundle rendered the
+// same rows inline. A stub that only returns a marker therefore REPLACES the
+// entire row (group header, session title, …) with "dsh-stub", which is what
+// made the session-title assertions fail here.
+//
+// Order: render children, else the element passed as `anchor`, else the first
+// string-valued text prop, else the marker. `content` is deliberately not
+// rendered — it is hover-card body, not row content.
+const RENDER_PROPS = ["children", "anchor"]
+const TEXT_PROPS = ["label", "title", "text", "value", "name", "message", "alt"]
 const primitives = new Proxy(
   {},
   {
     get: (target, prop) => {
       if (prop === Symbol.toStringTag) return "Module"
-      return "dsh-stub"
+      return function stub(props) {
+        if (props !== null && typeof props === "object") {
+          for (const key of RENDER_PROPS) {
+            if (props[key] !== undefined && props[key] !== null) return props[key]
+          }
+          for (const key of TEXT_PROPS) {
+            if (typeof props[key] === "string") return props[key]
+          }
+        }
+        return "dsh-stub"
+      }
     },
   },
 )
@@ -65,28 +90,48 @@ if (!factoryRef) throw new Error("no factory")
 const mod = factoryRef((name) => {
   if (name === "react") return React
   if (name === "react/jsx-runtime") return jsxRuntime
-  if (name === "@deepseek-ai/dsh-client-runtime/client") {
-    return {
-      defineStore: (s) => ({ ...s }),
-      indexSubagentDescendants: () => new Map(),
-      abbreviateHomePath: (p) => p,
-    }
-  }
+  // 0.1.5-rc.1 deleted @deepseek-ai/dsh-client-runtime. The bundle now takes
+  // Service from cordis and defineStore from dsh-client-store (both are served
+  // by the web shell's seed table in the browser), and the helpers that module
+  // used to re-export (indexSubagentDescendants, abbreviateHomePath) are
+  // module-local in the new bundle.
+  if (name === "@deepseek-ai/cordis") return { Service: class Service { constructor(c) { this.ctx = c } } }
+  if (name === "@deepseek-ai/dsh-client-store") return { defineStore: (s) => ({ ...s }) }
   if (name === "@deepseek-ai/dsh-client-ui-primitives") return primitives
   throw new Error("unexpected require: " + name)
 })
 
 // capture the registered components
 const registered = {}
+// Both halves resolve dependencies through `ctx.get(name)` in 0.1.5-rc.1, and
+// workspaces/sessions expose a `list` SNAPSHOT STORE. The effects are not run
+// here (render-only), but apply() still reads ctx.remote.directoryPicker and
+// publishes root hooks through ctx.slots.provideRoot.
+const workspacesList = {
+  getSnapshot: () => ({ items: [], archivedSessionIds: [], current: undefined }),
+  subscribe: () => () => {},
+}
+const sessionsList = {
+  getSnapshot: () => ({ ids: [], byId: {}, current: undefined, phase: "ready" }),
+  subscribe: () => () => {},
+}
+const services = {
+  connection: { hostDescription: "test-host" },
+  inputTriggers: { registerSource: () => () => {} },
+  workspaces: { list: workspacesList },
+  sessions: { list: sessionsList, search: async () => ({ ok: true, value: { items: [] } }), searchResultLimit: 50, binding: () => undefined },
+}
 const ctx = {
-  get: (name) => (name === "connection" ? { hostDescription: "test-host" } : undefined),
+  get: (name) => services[name],
+  ...services,
+  layout: {},
+  remote: { directoryPicker: { pick: async () => undefined, available: () => false }, query: {} },
   locale: { register: () => {} },
-  sessions: { search: async () => ({ ok: true, value: { items: [] } }), searchResultLimit: 50, binding: () => undefined },
-  workspaces: {},
   slots: {
     entries: () => [], subscribe: () => () => {},
     inject: (name, cb) => { registered[name] = cb() },
     register: (opts, Component) => ({ opts, Component }),
+    provideRoot: () => {},
   },
   effect: () => () => {},
 }
@@ -165,6 +210,13 @@ const useWorkspaces = (selector) => selector(workspacesState)
 const useSessions = (selector) => selector(sessionsState)
 const useDirectoryFlow = (selector) => selector(false)
 const useHostDescription = (selector) => selector({ home: undefined })
+// 0.1.5-rc.1: the browser reads the host home through useHostInfo, and the panel
+// active state through usePanelInfo.
+const useHostInfo = (selector) => selector({ home: "/Users/you" })
+const usePanelInfo = (selector) => selector({ activePanelId: null })
+// sessionNode() reads pendingInteractions.get(id) — it must be a Map, not the
+// bare state object the old harness passed.
+const useSessionPendingInteraction = () => new Map()
 
 const actions = {
   retainAccountKeys: () => {},
@@ -221,6 +273,9 @@ const props = {
   searchResultLimit: 50,
   useDirectoryFlow,
   useHostDescription,
+  useHostInfo,
+  usePanelInfo,
+  useSessionPendingInteraction,
   renderSlot: () => null,
   t,
 }
@@ -247,6 +302,51 @@ const checks = [
   ["no duplicate new-session row", !/>\+ 新会话</.test(html)],
   ["dialog closed by default", !html.includes("创建分支") && !html.includes("Create branch")],
 ]
+// ---- regression: the worktree dimension must not reshape the tree ----------
+// Covers the two defects fixed in "keep worktree rows nested when a project
+// group is collapsed" (adapt/dsh-0.1.5-rc.1). Both are invisible to a
+// single-state render, and both were originally found only by eye:
+//   * a COLLAPSED project used to spill its worktrees back to the top level;
+//   * a project with NO group at all must keep them, because the nested render
+//     can never happen there — hiding them would strand those sessions.
+// Effects do not run under renderToString, so the default-expansion effect
+// cannot mask the collapsed case here.
+const WORKTREE_WS_TITLE = "myapp/feature-01" // the worktree's own DSH workspace
+const rerender = () => ReactDOMServer.renderToString(React.createElement(WorkspaceBrowser, props))
+const savedItems = workspacesState.items
+const savedExpansion = viewState.groupExpansion
+const regression = []
+
+// (1) project group collapsed: nothing nested, and no spill to the top level
+viewState.groupExpansion = {}
+const collapsed = rerender()
+// `dsh-wtp-worktree-name` is the panel's OWN marker class (not a hashed CSS
+// module), so it isolates "a nested worktree row rendered" from "a worktree
+// workspace row was spilled to the top level" — the latter is the actual fix,
+// and it is the assertion that fails against a bundle without it.
+const NESTED_ROW_MARKER = "dsh-wtp-worktree-name"
+regression.push([
+  "collapsed project: no nested worktree row",
+  !collapsed.includes(NESTED_ROW_MARKER),
+])
+regression.push([
+  "collapsed project: worktree workspace row NOT spilled to the top level",
+  !collapsed.includes(WORKTREE_WS_TITLE),
+])
+
+// (2) project group absent: the worktree's own row must stay renderable
+workspacesState.items = savedItems.filter((w) => w.workspaceId !== "ws-main")
+const orphaned = rerender()
+regression.push([
+  "project without a group: worktree workspace row stays reachable",
+  orphaned.includes(WORKTREE_WS_TITLE),
+])
+
+// restore the primary fixture (the dumped /tmp/wtp-full.html stays valid)
+workspacesState.items = savedItems
+viewState.groupExpansion = savedExpansion
+checks.push(...regression)
+
 let failed = 0
 if (process.env.DUMP_HTML) console.log("--- html head ---\n" + html.slice(0, 2000) + "\n---")
 for (const [name, ok] of checks) {
