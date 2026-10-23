@@ -61,7 +61,7 @@ dsh plugin --profile web add link:/绝对路径/到/dsh-worktree-panel
 - **悬停卡片** — 悬停主工作树 / 分支 worktree 行（以及原有工作区行）显示名称、目录、创建时间，点卡片复制完整路径
 - **一键收起** — Workspaces 标题栏的「收起全部」（^^ 图标）：一次折叠所有 workspace 分组、所有主/分支 worktree 行和各段「展开其余 N 个会话」
 - **一键创建** — 底部「＋ 分支 → 创建 worktree」为未建 worktree 的分支一键创建（可选新建分支）
-- **落盘位置可配置** — 默认项目内 `.dsh/workspaces/`，或改为全局目录；更改时自动检测并批量迁移已有 worktree（跳过有未提交改动 / 活跃会话的）
+- **落盘位置可配置** — 默认项目内 `.dsh/workspaces/`，或改为全局目录，或 `@sibling` 模式（建在主工作树同级 `<项目名>-<分支名>`）；更改时自动检测并批量迁移已有 worktree（跳过有未提交改动 / 活跃会话的）
 - **零侵入** — 非 git 工作区保持官方原样，不显示任何 worktree UI
 
 ---
