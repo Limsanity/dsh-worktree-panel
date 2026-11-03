@@ -4,16 +4,14 @@
 // This exercises the injected nested SessionTree code exactly as the browser
 // would — any undefined identifier or bad prop throws here first.
 import { createRequire } from "node:module"
-import { readFileSync, writeFileSync, globSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
-import { homedir } from "node:os"
 
-// Resolve react/react-dom from the dsh CLI's npx-cache dependency tree
-// (the same store that hosts @deepseek-ai/dsh-client-ui-workspace).
-const reactPkg = globSync(join(homedir(), ".npm", "_npx", "*", "node_modules", "react", "package.json"))[0]
-if (!reactPkg) throw new Error("cannot locate react in the npx cache")
-const cliRequire = createRequire(reactPkg)
+// Resolve react/react-dom from the plugin's own node_modules (the same tree the
+// bundle is developed against) instead of an npx cache that drifts.
+const here = dirname(fileURLToPath(import.meta.url))
+const cliRequire = createRequire(join(here, "..", "package.json"))
 const React = cliRequire("react")
 const ReactDOMServer = cliRequire("react-dom/server")
 // Use the REAL jsx-runtime: its 3rd argument is the element KEY (React
@@ -21,14 +19,26 @@ const ReactDOMServer = cliRequire("react-dom/server")
 // into text children, which previously made the render "lose" everything).
 const jsxRuntime = cliRequire("react/jsx-runtime")
 // Real primitives import katex .css at module load (browser-only bundling), so
-// render with a component stub: every primitives export renders as <dsh-stub>.
-// The code under test is OUR injected SessionTree nesting, not the primitives.
+// render with a stub for every export. The stub is a function component that
+// renders its children (so wrapper components like Tooltip keep the content
+// under test visible) and doubles as a callable for helpers such as
+// relativeTime(). The code under test is OUR injected SessionTree code, not the
+// primitives.
+// 组件型导出（Tooltip / HoverCard 等）在现代 bundle 里分别用 children 和 anchor
+// 承载内容：两者都要透传，否则整行文字被 stub 吃掉，断言会假失败。
+const primitivesStubComponent = (props) => {
+  if (props && typeof props === "object") {
+    if (props.anchor !== undefined) return props.anchor
+    if ("children" in props) return props.children
+  }
+  return "dsh-stub"
+}
 const primitives = new Proxy(
   {},
   {
     get: (target, prop) => {
       if (prop === Symbol.toStringTag) return "Module"
-      return "dsh-stub"
+      return primitivesStubComponent
     },
   },
 )
@@ -58,13 +68,37 @@ const fakeWindow = {
 }
 let factoryRef
 
-const code = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "client.js"), "utf8")
+const code = readFileSync(join(here, "..", "lib", "client.js"), "utf8")
 new Function("window", "document", code)(fakeWindow, fakeDocument)
 if (!factoryRef) throw new Error("no factory")
 
 const mod = factoryRef((name) => {
   if (name === "react") return React
   if (name === "react/jsx-runtime") return jsxRuntime
+  if (name === "@deepseek-ai/dsh-client-store") {
+    // 0.2.1 起官方 bundle 从 dsh-client-store 拿 store 工厂（0.2.0 走的是
+    // dsh-client-runtime/client）；这里给一个最小实现，渲染只需要快照读取。
+    const createSnapshotStore = (initial) => {
+      let value = initial
+      return {
+        getSnapshot: () => value,
+        set: (next) => { value = typeof next === "function" ? next(value) : next },
+        subscribe: () => () => {},
+      }
+    }
+    const defineStore = (spec) => {
+      const create = () => {
+        const state = spec.init ? spec.init({}) : {}
+        const actions = {}
+        for (const [key, fn] of Object.entries(spec.actions ?? {})) actions[key] = (...args) => fn(state, ...args)
+        return { state, actions, getSnapshot: () => state, set: () => {}, subscribe: () => () => {} }
+      }
+      const empty = () => ({})
+      return { ...spec, create, getSnapshot: empty, subscribe: () => () => {} }
+    }
+    return { createSnapshotStore, defineStore }
+  }
+  if (name === "@deepseek-ai/cordis") return { Service: class Service { constructor(ctx) { this.ctx = ctx } } }
   if (name === "@deepseek-ai/dsh-client-runtime/client") {
     return {
       defineStore: (s) => ({ ...s }),
@@ -79,14 +113,25 @@ const mod = factoryRef((name) => {
 // capture the registered components
 const registered = {}
 const ctx = {
-  get: (name) => (name === "connection" ? { hostDescription: "test-host" } : undefined),
-  locale: { register: () => {} },
+  remote: { directoryPicker: {} },
+  shortcuts: { catalog: () => [] },
+  slots: undefined,
+  get: (name) => {
+    if (name === "connection") return { hostDescription: "test-host" }
+    if (name === "sessions") return ctx.sessions
+    if (name === "workspaces") return ctx.workspaces
+    return undefined
+  },
+  locale: { register: () => {}, bind: () => (key) => key, subscribe: () => () => {} },
   sessions: { search: async () => ({ ok: true, value: { items: [] } }), searchResultLimit: 50, binding: () => undefined },
   workspaces: {},
   slots: {
     entries: () => [], subscribe: () => () => {},
     inject: (name, cb) => { registered[name] = cb() },
     register: (opts, Component) => ({ opts, Component }),
+    provideRoot: () => {},
+    registerFactory: () => {},
+    subscribe: () => () => {},
   },
   effect: () => () => {},
 }
@@ -96,7 +141,7 @@ if (!WorkspaceBrowser) throw new Error("WorkspaceBrowser not captured")
 
 // ---- store fixtures ----
 const now = Date.now()
-const sess = (id, title, extra = {}) => ({ id, displayTitle: title, updatedAt: now - 1000, completed: true, running: false, blank: false, ...extra })
+const sess = (id, title, extra = {}) => ({ id, title, displayTitle: title, updatedAt: now - 1000, completed: true, running: false, blank: false, retainedBy: { mainView: 1 }, runningSubagentCount: 0, projectionValues: {}, ...extra })
 const byId = {
   s1: sess("s1", "主树上的会话"),
   s2: sess("s2", "feature-01 里的会话", { running: true }),
@@ -107,12 +152,15 @@ const sessionsState = {
   current: "s1",
   ids: ["s1", "s2", "s3"],
   byId,
+  projectionsBySession: {},
 }
 const workspacesState = {
   phase: "ready",
   items: [
     { workspaceId: "ws-main", title: "myapp", createdAt: now, sessionIds: ["s1"] },
     { workspaceId: "ws-feature", title: "myapp/feature-01", createdAt: now, sessionIds: ["s2", "s3"] },
+    // 「临时会话」入口的目标：非 git 的 misc 工作区。
+    { workspaceId: "ws-misc", title: "misc", path: "/Users/you/lab/misc", createdAt: now, sessionIds: [] },
   ],
   archivedSessionIds: [],
 }
@@ -164,7 +212,11 @@ const useStore = selectorHook(viewState)
 const useWorkspaces = (selector) => selector(workspacesState)
 const useSessions = (selector) => selector(sessionsState)
 const useDirectoryFlow = (selector) => selector(false)
-const useHostDescription = (selector) => selector({ home: undefined })
+const useHostInfo = (selector) => selector({ home: undefined })
+const useShortcuts = (selector) => selector([])
+const useWorkspaceShortcuts = (selector) => selector({ searchRequest: 0, addRequested: false, directoryBusy: false, renameTarget: null })
+const usePanelInfo = (selector) => selector({ activePanelId: null })
+const useSessionStatus = (selector) => selector(new Map())
 
 const actions = {
   retainAccountKeys: () => {},
@@ -194,6 +246,9 @@ const t = (key, params) => {
     "section.workspaces": "工作区",
     "sessions.expand": "展开其余 {n} 个会话",
     "sessions.collapse": "收起",
+    "wtp.quickSession": "临时会话",
+    "wtp.quickSessionTooltip": "在 misc 工作区新建会话",
+    "wtp.quickSessionMissing": "未找到 misc 工作区（标题或目录名）",
   }
   if (params) return (zh[key] ?? key) + ":" + JSON.stringify(params)
   return zh[key] ?? key
@@ -204,6 +259,8 @@ const props = {
   wide: true,
   expandSidebar: () => {},
   useSessions,
+  useSessionStatus,
+  usePanelInfo,
   useWorkspaces,
   useStore,
   actions,
@@ -220,7 +277,16 @@ const props = {
   searchSessions: async () => ({ items: [] }),
   searchResultLimit: 50,
   useDirectoryFlow,
-  useHostDescription,
+  useHostInfo,
+  useShortcuts,
+  useWorkspaceShortcuts,
+  requestSessionRename: () => {},
+  notifyArchivedNotOpenable: () => {},
+  unarchiveSession: async () => {},
+  requestSearch: () => {},
+  requestAddWorkspace: () => {},
+  closeAddWorkspace: () => {},
+  setDirectoryBusy: () => {},
   renderSlot: () => null,
   t,
 }
@@ -237,6 +303,19 @@ try {
 }
 writeFileSync("/tmp/wtp-full.html", html)
 
+// 目标缺失：没有 misc 工作区时入口必须是置灰态（aria-disabled），
+// 且绝不能变成「在最近的工作区开会话」。
+const noMiscState = { ...workspacesState, items: workspacesState.items.filter((workspace) => workspace.title !== "misc") }
+let htmlNoMisc = ""
+try {
+  htmlNoMisc = ReactDOMServer.renderToString(
+    React.createElement(WorkspaceBrowser, { ...props, useWorkspaces: (selector) => selector(noMiscState) }),
+  )
+} catch (err) {
+  console.error("RENDER FAILED (no misc):", err && err.stack ? err.stack : err)
+  process.exit(1)
+}
+
 const checks = [
   ["nested worktree row", html.includes("feature-01")],
   ["worktree dirty status text", html.includes("有改动") || html.includes("Modified")],
@@ -246,6 +325,12 @@ const checks = [
   ["worktree row plus button", (html.match(/<button[^>]*class="dsh-wtp-icon-btn"/g) || []).length >= 2],
   ["no duplicate new-session row", !/>\+ 新会话</.test(html)],
   ["dialog closed by default", !html.includes("创建分支") && !html.includes("Create branch")],
+  ["quick session row rendered", html.includes('class="dsh-wtp-quick-session"')],
+  ["quick session tooltip names misc", html.includes("在 misc 工作区新建会话")],
+  ["quick session hint is misc", /dsh-wtp-quick-session-hint[^>]*>misc</.test(html)],
+  ["quick session resolved a workspace", !html.includes("dsh-wtp-quick-session-missing")],
+  ["quick session missing state", htmlNoMisc.includes("dsh-wtp-quick-session-missing") && htmlNoMisc.includes('aria-disabled="true"')],
+  ["quick session missing tooltip", htmlNoMisc.includes("未找到 misc 工作区")],
 ]
 let failed = 0
 if (process.env.DUMP_HTML) console.log("--- html head ---\n" + html.slice(0, 2000) + "\n---")

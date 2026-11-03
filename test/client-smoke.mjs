@@ -7,9 +7,11 @@ import { createRequire } from "node:module"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
-import { homedir } from "node:os"
 
-const profileRequire = createRequire(join(homedir(), ".dsh", "profiles", "web", "package.json"))
+// Resolve react from the plugin's own node_modules (0.2.1 removed the
+// profiles/web/node_modules projection this test used to read from).
+const here = dirname(fileURLToPath(import.meta.url))
+const profileRequire = createRequire(join(here, "..", "package.json"))
 const React = profileRequire("react")
 
 let factory
@@ -22,7 +24,7 @@ const fakeWindow = {
   },
 }
 
-const code = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "lib", "client.js"), "utf8")
+const code = readFileSync(join(here, "..", "lib", "client.js"), "utf8")
 // The bundle touches document only inside __wtpEnsureCss (called from a
 // component hook) and the CSS module injector, which is guarded by
 // `typeof document !== "undefined"`; render paths are not exercised here.
@@ -46,6 +48,27 @@ const mod = factory((name) => {
   if (name === "react/jsx-runtime") {
     return { jsx: React.createElement, jsxs: React.createElement, Fragment: React.Fragment }
   }
+  if (name === "@deepseek-ai/dsh-client-store") {
+    const createSnapshotStore = (initial) => {
+      let value = initial
+      return {
+        getSnapshot: () => value,
+        set: (next) => { value = typeof next === "function" ? next(value) : next },
+        subscribe: () => () => {},
+      }
+    }
+    const defineStore = (spec) => {
+      const create = () => {
+        const state = spec.init ? spec.init({}) : {}
+        const actions = {}
+        for (const [key, fn] of Object.entries(spec.actions ?? {})) actions[key] = (...args) => fn(state, ...args)
+        return { state, actions, getSnapshot: () => state, set: () => {}, subscribe: () => () => {} }
+      }
+      return { ...spec, create, getSnapshot: () => ({}), subscribe: () => () => {} }
+    }
+    return { createSnapshotStore, defineStore }
+  }
+  if (name === "@deepseek-ai/cordis") return { Service: class Service { constructor(ctx) { this.ctx = ctx } } }
   if (name === "@deepseek-ai/dsh-client-runtime/client") {
     return { defineStore: (spec) => ({ ...spec }) }
   }
@@ -58,9 +81,18 @@ if (!Array.isArray(mod.inject)) throw new Error("client bundle exports no inject
 
 const registrations = []
 const ctx = {
-  get: (name) => (name === "connection" ? { hostDescription: "test-host" } : undefined),
-  locale: { register: () => {} },
+  get: (name) => {
+    if (name === "connection") return { hostDescription: "test-host" }
+    if (name === "sessions") return ctx.sessions
+    if (name === "workspaces") return ctx.workspaces
+    return undefined
+  },
+  remote: { directoryPicker: {} },
+  shortcuts: { catalog: () => [], register: () => {} },
+  layout: { beginNavigation: () => new AbortController().signal, selectPanel: () => {}, toggleSidebar: () => {} },
+  locale: { register: () => {}, bind: () => (key) => key, subscribe: () => () => {} },
   sessions: {
+    list: { getSnapshot: () => ({ phase: "ready", ids: [], byId: {}, projectionsBySession: {} }), subscribe: () => () => {} },
     search: async () => ({ ok: true, value: { items: [] } }),
     searchResultLimit: 50,
     binding: () => undefined,
@@ -68,6 +100,7 @@ const ctx = {
     open: () => {},
   },
   workspaces: {
+    list: { getSnapshot: () => ({ phase: "ready", items: [], archivedSessionIds: [] }), subscribe: () => () => {} },
     startSession: () => {},
     rename: async () => {},
     delete: async () => {},
@@ -83,6 +116,8 @@ const ctx = {
       registrations.push({ name, registered: cb() })
     },
     register: (opts, Component) => ({ opts, Component }),
+    provideRoot: () => {},
+    registerFactory: () => {},
   },
   effect: (fn) => {
     const dispose = fn()
