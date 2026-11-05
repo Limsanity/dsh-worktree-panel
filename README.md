@@ -97,6 +97,17 @@ agent 会先调用 `worktree_list`，结合项目名、分支名和已有会话�
 - 在已有主工作树 / 分支 worktree / 独立工作区下新建会话，注入 `task` 后台开始工作（默认模型/预设）。
 - 目标尚未注册成 DSH 工作区时会先补注册；不创建分支或 worktree，路径不在面板已有目标中会直接拒绝。
 
+#### `worktree_session_continue`
+
+```jsonc
+{ "sessionId": "worktree_list 返回的已有会话 id", "task": "要追加到原会话的完整任务描述" }
+```
+
+- 在原会话中追加普通 follow-up，不创建新会话、分支或 worktree，返回的仍是原 `sessionId`。
+- 会话运行中则排为后续轮次，空闲则立即开始；已持久化但不在内存中的会话先 `resume`，再继续。
+- 恢复时优先沿用原会话的 agent preset；preset 已不可用时回退到默认 preset。模型使用当前默认模型，无法确定时回退到调用方模型。
+- 只接受面板已有目录下的顶层会话；不存在的 id、子 agent 会话、目录不属于面板的会话都会被拒绝。
+
 ### `worktree_task`
 
 ```jsonc

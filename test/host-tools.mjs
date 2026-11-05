@@ -219,6 +219,7 @@ try {
   assert.deepEqual(registeredTools.map((tool) => tool.name), [
     "worktree_list",
     "worktree_session",
+    "worktree_session_continue",
     "worktree_task",
     "worktree_remove",
   ])
