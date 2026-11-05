@@ -1,7 +1,7 @@
 // Host-side routing tool test. Uses a fake read-only git executable and an
 // isolated DSH_HOME: no real repository, branch, worktree or session is changed.
 import assert from "node:assert/strict"
-import { mkdtemp, mkdir, writeFile, chmod, rm } from "node:fs/promises"
+import { mkdtemp, mkdir, writeFile, chmod, rm, realpath } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -71,12 +71,21 @@ const makeWorkspace = (id, title, path) => ({
   attachSession: async (sessionId) => attached.push({ workspaceId: id, sessionId: String(sessionId) }),
 })
 const workspaces = [
-  makeWorkspace("ws-main", "demo-app", repo),
+  // 用户手动给主工作区标注了业务语义：name 仍是目录名，workspaceTitle 才是项目本体名。
+  makeWorkspace("ws-main", "demo-app（演示用 PDF 导出项目）", repo),
   makeWorkspace("ws-notes", "notes", standalone),
 ]
 const workspaceRegistry = {
   list: () => workspaces,
-  resolveByPath: async (path) => workspaces.find((workspace) => workspace.path === path) ?? null,
+  // 真实 registry 按规范化（realpath）路径匹配，这里保持一致：
+  // macOS 的 /var 与 /private/var 会被 realpath 统一，否则会误触发「补注册」。
+  resolveByPath: async (path) => {
+    const key = await realpath(String(path)).catch(() => String(path))
+    for (const workspace of workspaces) {
+      if ((await realpath(workspace.path).catch(() => workspace.path)) === key) return workspace
+    }
+    return null
+  },
   create: async (path, title) => {
     const workspace = makeWorkspace(`ws-created-${workspaces.length + 1}`, title, path)
     workspaces.push(workspace)
@@ -138,6 +147,10 @@ try {
   assert.equal(listed.repos[0].worktrees.length, 1)
   assert.equal(listed.repos[0].worktrees[0].path, worktree)
   assert.equal(listed.repos[0].worktrees[0].sessions[0].title, "实现导出 PDF")
+  // 回归：workspace title 必须透出给 agent，否则只能靠目录名猜项目归属。
+  assert.equal(listed.repos[0].workspaceTitle, "demo-app（演示用 PDF 导出项目）")
+  // worktree 节点若没有独立 workspace title，则不重复输出主项目 title。
+  assert.equal(listed.repos[0].worktrees[0].workspaceTitle, null)
   assert.equal(listed.workspaces.length, 1)
   assert.equal(listed.workspaces[0].path, standalone)
   assert.equal(listed.workspaces[0].sessions[0].title, "整理发布笔记")
@@ -147,6 +160,10 @@ try {
   assert.equal(filtered.workspaces.length, 0)
   const missingFilter = JSON.parse(await handleWorktreeList(ctx, { repo: "no-such-project" }))
   assert.match(missingFilter.warning, /没有候选/)
+  // 业务语义过滤：按 workspace title 里的中文关键词也应命中项目。
+  const byTitle = JSON.parse(await handleWorktreeList(ctx, { repo: "演示用" }))
+  assert.equal(byTitle.repos.length, 1)
+  assert.equal(byTitle.repos[0].name, "demo-app")
 
   const truncated = agentTreePayload({
     repos: [{ name: "many", path: repo, sessions: Array.from({ length: 25 }, (_, i) => ({ id: `s${i}`, title: `t${i}` })) }],
