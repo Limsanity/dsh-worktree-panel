@@ -4,7 +4,7 @@
   "version": "0.1.5",
   "scripts": {
     "build": "node lib/build.mjs",
-    "test": "node test/client-smoke.mjs && node test/render-test.mjs",
+    "test": "node test/host-tools.mjs && node test/client-smoke.mjs && node test/render-test.mjs",
     "prepublishOnly": "npm run build"
   },
   "type": "module",
